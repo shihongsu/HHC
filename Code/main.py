@@ -3,7 +3,6 @@ from ppo_agent import PPOAgent
 
 
 if __name__ == '__main__':
-
 	config = {
 		"gpu": False,
 		"training_steps": 1e8,
@@ -23,14 +22,16 @@ if __name__ == '__main__':
 		"eval_episode": 5,
 	}
 
-	dist = [[0, 3, 5], 
-		 	[3, 0, 4], 
-			[5, 4, 0]]
-	job = [[20, 100, 3, 40], 
-			[40, 80, 1, 20], 
-			[0, 60, 2, 30]]
+	distance = [[0, 3, 5], 
+		 		[3, 0, 4], 
+				[5, 4, 0]]
+	patients = [[20, 100, 3, 40], 
+				[40, 80, 1, 20], 
+				[0, 60, 2, 30]]
+	
+	caregivers = []
 
-	agent = PPOAgent(config)
+	agent = PPOAgent(config, patients, distance, caregivers)
 	# agent.load("./log/")
 	agent.train()
 	agent.evaluate()

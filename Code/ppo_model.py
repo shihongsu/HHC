@@ -15,7 +15,7 @@ class PPONet(nn.Module):
         # ELU
         self.activation = nn.ELU()
         # 2nd GAT
-        self.gat2 = GATConv(hidden_channels * heads, out_channels, heads = 1, concat = False)
+        self.gat2 = GATConv(hidden_channels * heads, out_channels, heads = 1, concat = False, edge_dim = edge_attr_dim)
         
         self.edge_mlp = nn.Sequential(nn.Linear(2 * out_channels, 256), 
                                       nn.ReLU(), 
@@ -37,6 +37,9 @@ class PPONet(nn.Module):
         
         x = x.float()
         edge_attr = edge_attr.float()
+
+        print("x shape:", x.shape)
+        print("edge_attr shape:", edge_attr.shape)
 
         x = self.gat1(x, edge_index, edge_attr)
         x = F.elu(x)

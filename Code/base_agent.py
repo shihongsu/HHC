@@ -5,7 +5,7 @@ import os
 import time
 from collections import deque
 from torch.utils.tensorboard import SummaryWriter
-from gae_replay_buffer import GAEReplayBuffer
+from gae_replay_buffer import GaeSampleMemory
 from abc import ABC, abstractmethod
 
 class PPOBaseAgent(ABC):
@@ -25,11 +25,11 @@ class PPOBaseAgent(ABC):
 		self.eval_interval = config["eval_interval"]
 		self.eval_episode = config["eval_episode"]
 
-		self.gae_replay_buffer = GAEReplayBuffer({
+		self.gae_replay_buffer = GaeSampleMemory({
 			"horizon" : config["horizon"],
 			"use_return_as_advantage": False,
 			"agent_count": 1,
-			}, capacity = self.update_sample_count, action_dim = 2)
+			})
 		# actions: {assign to a c.g, add a c.g.}
 
 		self.writer = SummaryWriter(config["logdir"])
@@ -58,7 +58,7 @@ class PPOBaseAgent(ABC):
 	def train(self):
 		episode_idx = 0
 		while self.total_time_step <= self.training_steps:
-			observation, info = self.env.reset()
+			observation = self.env.reset()
 			episode_reward = 0
 			episode_len = 0
 			episode_idx += 1

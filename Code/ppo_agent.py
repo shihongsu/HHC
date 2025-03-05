@@ -5,38 +5,166 @@ import os
 import time
 from collections import deque
 from torch.utils.tensorboard import SummaryWriter
-from gae_replay_buffer import GAEReplayBuffer
+from gae_replay_buffer import GaeSampleMemory
 from base_agent import PPOBaseAgent
 from ppo_model import PPONet
+from torch_geometric.utils import from_networkx
 import gym
 import cv2
 
-# greyscale
-class RGB2G(gym.ObservationWrapper):
-	def __init__(self, env):
-		super().__init__(env)
-		self.observation_space = gym.spaces.Box(shape = (84, 84), low = 0, high = 255)
+import networkx as nx
+from gym import spaces
+from torch_geometric.data import Data
 
-	def observation(self, obs):
-		# Convert to grayscale
-		greyscale_image = cv2.cvtColor(obs, cv2.COLOR_BGR2GRAY)
-		# Resize the image (example: resize to 100x100 pixels)
-		resized_image = cv2.resize(greyscale_image, (84, 84))
-		return resized_image
+
+# graph environment
+class GraphEnv(gym.Env):
+	def __init__(self, patients, distance, caregivers):
+		super(GraphEnv, self).__init__()
+		
+		self.graph = nx.Graph()
+		self.patients = patients # list of requests
+		self.distance = distance
+		self.caregivers = caregivers # c.g. info
+		self.assignments = {} # {pat_id: c.g._id}
+		self.caregiver_counter = len(caregivers) # c.g. count
+
+		self._build_graph()
+
+		# action space
+		num_patients = len(self.patients)
+		num_caregivers = len(self.caregivers) + 1
+		self.action_space = spaces.MultiDiscrete([num_patients, num_caregivers])
+
+		# observation space
+		self.observation_space = spaces.Box(low = 0, high = 1, shape = (num_patients + num_caregivers, num_patients + num_caregivers), dtype = np.float32)
+
+	
+	def _build_graph(self):
+		# Add pat
+		num_patients = len(self.patients)
+		for i, patient in enumerate(self.patients):
+			self.graph.add_node(i, 
+					   			type = 1, 
+					   			level = patient[2], 
+								time_window_start = patient[0], 
+								time_window_end = patient[1], 
+								service_time = patient[3], 
+								workload = -1, 
+								is_add = False)
+
+		# build edge_index and edge_attr
+		edge_index_list = []
+		edge_attr_list = []
+
+		# Add dist
+		for i in range(num_patients):
+			for j in range(num_patients):
+				if i != j:
+					self.graph.add_edge(i, j, distance = self.distance[i][j])
+
+					edge_index_list.append([i, j])
+					edge_attr_list.append([self.distance[i][j]])
+
+		self.graph.edge_index = torch.tensor(edge_index_list, dtype = torch.long).T # transpose to shape (2, num_edges)
+		self.graph.edge_attr = torch.tensor(edge_attr_list, dtype = torch.float) # shape (num_edges, features)
+
+		# Add "add_cg"
+		self.graph.add_node(num_patients, 
+					  		type = 3, 
+							level = -1,
+							time_window_start = -1,
+							time_window_end = -1, 
+							service_time = -1,
+							workload = -1,
+							is_add = True)
+	
+
+	def step(self, action):
+		patient_id, caregiver_id = action
+		patient_node = self.graph.nodes[patient_id]
+
+		if caregiver_id["type"] == "add_caregiver":
+			# add cg with lv = pat lv
+			self.graph.add_node(len(self.patients) + len(self.caregivers), 
+					   			type = 2, 
+								level = patient_node["level"], 
+								time_window_start = -1, 
+								time_window_end = -1, 
+								service_time = -1, 
+								workload = 480 - patient_node["service_time"], 
+								is_add = False)
+			
+			self.assignments[patient_id] = len(self.patients) + len(self.caregivers)
+			self.caregiver_counter += 1
+			reward = 2 # successful assignment
+		else:
+			# check if assignment valid (time window + lv)
+			caregiver_node = self.graph.nodes[caregiver_id]
+
+			if caregiver_node["level"] >= patient_node["level"]:
+				self.assignments[patient_id] = caregiver_id
+				reward = 5
+			else:
+				reward = -10
+
+		done = (len(self.assignments) == len(self.patients))
+		return self._get_observation, reward, done, {}
+
+
+	def _get_observation(self):
+		return self.graph
+
+
+	def reset(self):
+		"""Reset environment."""
+		self.graph.clear()
+		self.caregivers.clear()
+		self.assignments.clear()
+		self.caregiver_counter = 0
+		self._build_graph()
+		
+		return self._get_observation()
+
 
 class PPOAgent(PPOBaseAgent):
-	def __init__(self, config):
+	def __init__(self, config, patients, distance, caregivers):
 		super(PPOAgent, self).__init__(config)
 		### TODO ###
 		# initialize env
-		self.env = gym.wrappers.FrameStack(RGB2G(gym.make(config["env_id"])), num_stack = 4)
-		
+		self.env = GraphEnv(patients, distance, caregivers)
 		### TODO ###
 		# initialize test_env
-		self.test_env = gym.wrappers.FrameStack(RGB2G(gym.make(config["env_id"], render_mode = "rgb_array")), num_stack = 4)
-		self.test_env = gym.wrappers.RecordVideo(self.test_env, "video")
+		self.test_env = GraphEnv(patients, distance, caregivers)
 
-		self.net = PPONet(self.env.action_space.n)
+		# Set up PPO net
+
+		"""
+		Node with attribute: 
+			# index: Node index
+			type: patient (1) / caregiver (2) / add caregiver (3)
+			level:  Skill level
+			time_window_start: Time window start (for patients)
+			time_window_end: Time window end (for patients)
+			service_time:  Service time (for patients)
+			workload:  Workload (for caregivers)
+			is_add: Check if whether is the add caregiver node
+		
+		Edge with attribute:
+			dist: distance between nodes		
+		"""
+		self.node_attr = ["type", 
+						  "level", 
+						  "time_window_start", 
+						  "time_window_end", 
+						  "service_time", 
+						  "workload", 
+						  "is_add"]
+		self.edge_attr = ["distance"]
+
+
+		self.net = PPONet(len(self.node_attr), len(self.edge_attr))
+
 		self.net.to(self.device)
 		self.lr = config["learning_rate"]
 		self.update_count = config["update_ppo_epoch"]
@@ -45,17 +173,16 @@ class PPOAgent(PPOBaseAgent):
 	def decide_agent_actions(self, observation, eval=False):
 		### TODO ###
 		# add batch dimension in observation
-		observation = np.expand_dims(observation, axis = 0)
-		observation = torch.tensor(observation, dtype = torch.float32).to(self.device)
+		data = from_networkx(observation, group_node_attrs = self.node_attr, group_edge_attrs = self.edge_attr).to(self.device)
 
 		# get action, value, logp from net
 		if eval:
 			with torch.no_grad():
-				action, prob, value, _ = self.net(observation, eval=True)
+				action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr, eval=True)
 		else:
-			action, prob, value, _ = self.net(observation)
+			action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr)
 		
-		return action.detach().cpu().numpy(), value.item(), prob.item()
+		return action.detach().cpu().numpy(), value.item(), prob.squeeze().item()
 	
 	def update(self):
 		loss_counter = 0.0001
@@ -88,16 +215,11 @@ class PPOAgent(PPOBaseAgent):
 				v_train_batch = v_batch[start:start + self.batch_size]
 				logp_pi_train_batch = logp_pi_batch[start:start + self.batch_size]
 
-				ob_train_batch = torch.from_numpy(ob_train_batch["observation_2d"])
-				ob_train_batch = ob_train_batch.to(self.device, dtype=torch.float32)
-				ac_train_batch = torch.from_numpy(ac_train_batch)
-				ac_train_batch = ac_train_batch.to(self.device, dtype=torch.long)
-				adv_train_batch = torch.from_numpy(adv_train_batch)
-				adv_train_batch = adv_train_batch.to(self.device, dtype=torch.float32)
-				logp_pi_train_batch = torch.from_numpy(logp_pi_train_batch)
-				logp_pi_train_batch = logp_pi_train_batch.to(self.device, dtype=torch.float32)
-				return_train_batch = torch.from_numpy(return_train_batch)
-				return_train_batch = return_train_batch.to(self.device, dtype=torch.float32)
+				ob_train_batch = torch.tensor(ob_train_batch, dtype = torch.float32).to(self.device)
+				ac_train_batch = torch.tensor(ac_train_batch, dtype = torch.long).to(self.device)
+				adv_train_batch = torch.tensor(adv_train_batch, dtype = torch.float32).to(self.device)
+				logp_pi_train_batch = torch.tensor(logp_pi_train_batch, dtype = torch.float32).to(self.device)
+				return_train_batch = torch.tensor(return_train_batch, dtype = torch.float32).to(self.device)
 
 				### TODO ###
 				# calculate loss and update network
