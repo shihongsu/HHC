@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 class GaeSampleMemory(object):
     # one path for one agent
@@ -53,12 +54,28 @@ class GaeSampleMemory(object):
             return len(self.transitions["action"])
 
         def append(self, sample):
+            print("Sample", sample)
             for key in sample:
+                print("Key:", key)
+                print("Sample[key]:", sample[key])
+
                 if key == "observation":
-                    for obs_key in sample[key]:
+                    for obs_idx, obs_key in enumerate(sample[key]):
+                        print("Obs_key:", obs_key, "Obs_key type:", type(obs_key), "Obs_key shape:", obs_key.shape)
+
+                        # Ensure obs_key is of hashable type
+                        if isinstance(obs_key, torch.Tensor):
+                            if obs_key.numel() == 1:
+                                obs_key = obs_key.item() # Convert single-value tensor to scalar
+                            else: 
+                                obs_key = tuple(obs_key.tolist()) # Convert multi-element tensor to tuple
+                        
+                        # Initialize storage if needed
                         if obs_key not in self.transitions[key]:
                             self.transitions[key][obs_key] = []
-                        self.transitions[key][obs_key].append(sample[key][obs_key])
+
+                        # Append only the corresponding row instead of the entire tensor
+                        self.transitions[key][obs_key].append(sample[key][obs_idx])
                 else:
                     self.transitions[key].append(sample[key])
 

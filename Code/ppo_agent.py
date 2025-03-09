@@ -9,12 +9,17 @@ from gae_replay_buffer import GaeSampleMemory
 from base_agent import PPOBaseAgent
 from ppo_model import PPONet
 from torch_geometric.utils import from_networkx
+import torch_geometric.utils.convert as tg_convert
 import gym
 import cv2
 
 import networkx as nx
 from gym import spaces
 from torch_geometric.data import Data
+
+import networkx as nx
+print("NetworkX version:", nx.__version__)
+print("nx.is_directed:", nx.is_directed)
 
 
 # graph environment
@@ -82,9 +87,12 @@ class GraphEnv(gym.Env):
 
 	def step(self, action):
 		patient_id, caregiver_id = action
+		print("PatID:", patient_id, ", CgID:", caregiver_id)
 		patient_node = self.graph.nodes[patient_id]
 
-		if caregiver_id["type"] == "add_caregiver":
+		print("Caregiver type:", nx.get_node_attributes(self.graph, "type")[caregiver_id])
+		# if type == add caregiver (3)
+		if nx.get_node_attributes(self.graph, "type")[caregiver_id] == 3:
 			# add cg with lv = pat lv
 			self.graph.add_node(len(self.patients) + len(self.caregivers), 
 					   			type = 2, 
@@ -109,7 +117,7 @@ class GraphEnv(gym.Env):
 				reward = -10
 
 		done = (len(self.assignments) == len(self.patients))
-		return self._get_observation, reward, done, {}
+		return self._get_observation(), reward, done, {}
 
 
 	def _get_observation(self):
@@ -153,6 +161,7 @@ class PPOAgent(PPOBaseAgent):
 		Edge with attribute:
 			dist: distance between nodes		
 		"""
+		
 		self.node_attr = ["type", 
 						  "level", 
 						  "time_window_start", 
@@ -173,16 +182,26 @@ class PPOAgent(PPOBaseAgent):
 	def decide_agent_actions(self, observation, eval=False):
 		### TODO ###
 		# add batch dimension in observation
-		data = from_networkx(observation, group_node_attrs = self.node_attr, group_edge_attrs = self.edge_attr).to(self.device)
+		print("Observation:", observation)
+		print("Observation type:", type(observation))
+
+		# print("nx.is_directed(observation):", nx.is_directed(observation))
+
+		data = from_networkx(observation, group_node_attrs = self.node_attr, group_edge_attrs = self.edge_attr)
+
+		print("Data:", data)
+		print("Data type:", type(data))
 
 		# get action, value, logp from net
 		if eval:
 			with torch.no_grad():
-				action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr, eval=True)
+				unique_edges, action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr, eval=True)
 		else:
-			action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr)
+			unique_edges, action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr)
+
+		print("Unique edges:", unique_edges[: , action].detach().cpu().numpy(), "Action:", action.detach().cpu().numpy())
 		
-		return action.detach().cpu().numpy(), value.item(), prob.squeeze().item()
+		return unique_edges[: , action].detach().cpu().numpy(), action.detach().cpu().numpy(), value.item(), prob.squeeze().item()
 	
 	def update(self):
 		loss_counter = 0.0001

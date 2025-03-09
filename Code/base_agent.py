@@ -6,6 +6,7 @@ import time
 from collections import deque
 from torch.utils.tensorboard import SummaryWriter
 from gae_replay_buffer import GaeSampleMemory
+from replay_buffer import ReplayMemory
 from abc import ABC, abstractmethod
 
 class PPOBaseAgent(ABC):
@@ -28,7 +29,7 @@ class PPOBaseAgent(ABC):
 		self.gae_replay_buffer = GaeSampleMemory({
 			"horizon" : config["horizon"],
 			"use_return_as_advantage": False,
-			"agent_count": 1,
+			"agent_count": 1
 			})
 		# actions: {assign to a c.g, add a c.g.}
 
@@ -63,26 +64,37 @@ class PPOBaseAgent(ABC):
 			episode_len = 0
 			episode_idx += 1
 			while True:
-				action, value, logp_pi = self.decide_agent_actions(observation)
-				next_observation, reward, terminate, truncate, info = self.env.step(action.item())
+				selected_edge, action, value, logp_pi = self.decide_agent_actions(observation)
+				next_observation, reward, terminate, truncate = self.env.step(selected_edge)
 				# observation must be dict before storing into gae_replay_buffer
 				# dimension of reward, value, logp_pi, done must be the same
 				obs = {}
-				obs["observation_2d"] = np.asarray(observation, dtype=np.float32)
-				self.gae_replay_buffer.store(
-					obs = torch.tensor(observation, dtype = torch.float32, device = self.device), # ensure is tensor
-					action = torch.tensor(action, dtype = torch.int64, device = self.device), 
-					reward = torch.tensor([reward], dtype = torch.float32, device = self.device), # shape (1, )
-					value = torch.tensor([value], dtype = torch.float32, device = self.device), # shape (1, )
-					log_prob = torch.tensor([logp_pi], dtype = torch.float32, device = self.device), 
-					done = torch.tensor([1.0 if terminate else 0.0], dtype = torch.float32, device = self.device)
-				)
+				# obs["observation_2d"] = np.asarray(observation, dtype=np.float32)
+				print("Observation:", observation)
+				print("Observation type:", type(observation))
+				features = np.array([[data[attr] for attr in data] for _, data in observation.nodes(data = True)], dtype = np.float32)
+				print("Features:", features)
+				obs = torch.tensor(features, dtype = torch.float32, device = self.device) # ensure is tensor
+				action = torch.tensor(action, dtype = torch.int64, device = self.device)
+				reward = torch.tensor([reward], dtype = torch.float32, device = self.device), # shape (1, )
+				value = torch.tensor([value], dtype = torch.float32, device = self.device), # shape (1, )
+				logp_pi = torch.tensor([logp_pi], dtype = torch.float32, device = self.device)
+				done = torch.tensor([1.0 if terminate else 0.0], dtype = torch.float32, device = self.device)
+				self.gae_replay_buffer.append(0, {
+								"observation": obs,
+								"action": action,
+								"reward": reward, 
+								"value": value, 
+								"logp_pi": logp_pi, 
+								"done": done})
 
-				if self.gae_replay_buffer.is_full():
+				if len(self.gae_replay_buffer) >= self.update_sample_count:
 					self.update()
-					self.gae_replay_buffer.clear()
+					self.gae_replay_buffer.clear_buffer()
 
-				episode_reward += reward
+				print("Episode reward", episode_reward, ". Reward:", reward)
+
+				episode_reward += reward[0].item()
 				episode_len += 1
 				
 				if terminate or truncate:
@@ -110,7 +122,7 @@ class PPOBaseAgent(ABC):
 			while True:
 				# self.test_env.render()
 				action, _, _ = self.decide_agent_actions(observation, eval=True)
-				next_observation, reward, terminate, truncate, info = self.test_env.step(action[0])
+				next_observation, reward, terminate, truncate = self.test_env.step(action[0])
 				total_reward += reward
 				if terminate or truncate:
 					print(f"episode {i+1} reward: {total_reward}")
