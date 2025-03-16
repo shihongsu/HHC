@@ -17,7 +17,7 @@ class PPONet(nn.Module):
         # 2nd GAT
         self.gat2 = GATConv(hidden_channels * heads, out_channels, heads = 1, concat = False, edge_dim = edge_attr_dim)
         
-        self.edge_mlp = nn.Sequential(nn.Linear(2 * out_channels, 256), 
+        self.node_mlp = nn.Sequential(nn.Linear(out_channels, 256), 
                                       nn.ReLU(), 
                                       nn.Linear(256, 1))
         
@@ -38,31 +38,28 @@ class PPONet(nn.Module):
         x = x.float()
         edge_attr = edge_attr.float()
 
-        print("x shape:", x.shape)
-        print("edge_attr shape:", edge_attr.shape)
+        # print("x shape:", x.shape)
+        # print("edge_attr shape:", edge_attr.shape)
 
         x = self.gat1(x, edge_index, edge_attr)
-        x = F.elu(x)
+        x = self.activation(x)
         node_embeddings = self.gat2(x, edge_index, edge_attr)
 
-        # edge logits
-        row, col = edge_index
-        edge_embeddings = torch.cat([node_embeddings[row], node_embeddings[col]], dim = -1)
-        edge_logits = self.edge_mlp(edge_embeddings).squeeze(-1)
+        # node logits
+        node_logits = self.node_mlp(node_embeddings).squeeze(-1)
+
+        # print("Node logits shape:", node_logits.shape)
 
         # action mask
         if action_mask is not None:
-            masked_logits = edge_logits.clone()
+            # action_mask = action_mask.view(-1, 1) 
+            masked_logits = node_logits.clone()
+            # print("Masked_logits:", masked_logits)
             masked_logits[action_mask == 0] = float("-inf")
         else:
-            masked_logits = edge_logits
+            masked_logits = node_logits
 
-        # aggregate double direction of same edge
-        edge_pairs = torch.sort(edge_index, dim = 0).values
-        unique_edges, unique_indices = torch.unique(edge_pairs, dim = 1, return_inverse = True)
-        aggregated_logits = scatter_mean(masked_logits, unique_indices, dim = 0)
-
-        dist = Categorical(logits = aggregated_logits)
+        dist = Categorical(logits = masked_logits)
         
         ### TODO ###
         # Finish the forward function
@@ -70,19 +67,19 @@ class PPONet(nn.Module):
 
         # evaluation or not
         if eval:
-            action = torch.argmax(aggregated_logits).unsqueeze(0)
+            action = torch.argmax(masked_logits).unsqueeze(0)
         else:
             # action set empty or not
             if len(a) == 0:
                 action = dist.sample()
             else:
                 action = a
-        
+        # print("action:", action)
         prob = dist.log_prob(action)
         value = self.value_mlp(node_embeddings.mean(dim = 0)).squeeze(-1)
         entropy = dist.entropy()
 
-        return unique_edges, action, prob, value, entropy
+        return action, prob, value, entropy
 
     def _initialize_weights(self):
         for m in self.modules():

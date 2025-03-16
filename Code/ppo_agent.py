@@ -10,6 +10,7 @@ from base_agent import PPOBaseAgent
 from ppo_model import PPONet
 from torch_geometric.utils import from_networkx
 import torch_geometric.utils.convert as tg_convert
+import matplotlib.pyplot as plt
 import gym
 import cv2
 
@@ -18,8 +19,8 @@ from gym import spaces
 from torch_geometric.data import Data
 
 import networkx as nx
-print("NetworkX version:", nx.__version__)
-print("nx.is_directed:", nx.is_directed)
+# print("NetworkX version:", nx.__version__)
+# print("nx.is_directed:", nx.is_directed)
 
 
 # graph environment
@@ -31,13 +32,15 @@ class GraphEnv(gym.Env):
 		self.patients = patients # list of requests
 		self.distance = distance
 		self.caregivers = caregivers # c.g. info
-		self.assignments = {} # {pat_id: c.g._id}
+		self.assignments = [] # {pat_id: c.g._id}
 		self.caregiver_counter = len(caregivers) # c.g. count
 
 		self._build_graph()
 
 		# action space
 		num_patients = len(self.patients)
+		print("Pat", self.patients, "Pat#", num_patients)
+		print("Cg", self.caregivers)
 		num_caregivers = len(self.caregivers) + 1
 		self.action_space = spaces.MultiDiscrete([num_patients, num_caregivers])
 
@@ -83,16 +86,34 @@ class GraphEnv(gym.Env):
 							service_time = -1,
 							workload = -1,
 							is_add = True)
+		# caregivers [current time, worktime remain, level]
+		self.caregivers.append([0, 0, -1])
+
+		# give 1st caregiver
+		self.graph.add_node(num_patients + 1,
+					  		type = 2,
+							level = self.patients[0][2],
+							time_window_start = -1,
+							time_window_end = -1,
+							service_time = -1,
+							workload = 480,
+							is_add = False)
+		
+		pos = nx.spring_layout(self.graph)
+		nx.draw(self.graph, pos = pos, with_labels = True)
+		plt.show()
 	
 
 	def step(self, action):
-		patient_id, caregiver_id = action
-		print("PatID:", patient_id, ", CgID:", caregiver_id)
+		caregiver_id = int(action)
+		# print("action:", action, "type:", type(action))
+		patient_id = len(self.assignments)
+		# print("PatID:", patient_id, ", CgID:", caregiver_id)
 		patient_node = self.graph.nodes[patient_id]
 
-		print("Caregiver type:", nx.get_node_attributes(self.graph, "type")[caregiver_id])
+		# print("Caregiver type:", nx.get_node_attributes(self.graph, "type")[caregiver_id])
 		# if type == add caregiver (3)
-		if nx.get_node_attributes(self.graph, "type")[caregiver_id] == 3:
+		if self.graph.nodes[caregiver_id]["type"] == 3:
 			# add cg with lv = pat lv
 			self.graph.add_node(len(self.patients) + len(self.caregivers), 
 					   			type = 2, 
@@ -102,22 +123,25 @@ class GraphEnv(gym.Env):
 								service_time = -1, 
 								workload = 480 - patient_node["service_time"], 
 								is_add = False)
-			
-			self.assignments[patient_id] = len(self.patients) + len(self.caregivers)
+			self.caregivers.append([patient_node["time_window_start"], 480 - patient_node["service_time"], patient_node["level"]])
+			self.assignments.append([patient_id, caregiver_id])
+			# print("Pat", self.patients)
+			print("Assignment", self.assignments)
 			self.caregiver_counter += 1
 			reward = 2 # successful assignment
 		else:
 			# check if assignment valid (time window + lv)
 			caregiver_node = self.graph.nodes[caregiver_id]
 
-			if caregiver_node["level"] >= patient_node["level"]:
-				self.assignments[patient_id] = caregiver_id
+			if caregiver_node["level"] >= patient_node["level"] and caregiver_node["workload"] - patient_node["service_time"] >= 0:
+				self.assignments.append([patient_id, caregiver_id])
+				caregiver_node["workload"] - patient_node["service_time"]
 				reward = 5
 			else:
 				reward = -10
 
 		done = (len(self.assignments) == len(self.patients))
-		return self._get_observation(), reward, done, {}
+		return self._get_observation(), reward, done, {}, patient_id
 
 
 	def _get_observation(self):
@@ -183,25 +207,35 @@ class PPOAgent(PPOBaseAgent):
 		### TODO ###
 		# add batch dimension in observation
 		print("Observation:", observation)
-		print("Observation type:", type(observation))
+
+		# print("Observation type:", type(observation))
 
 		# print("nx.is_directed(observation):", nx.is_directed(observation))
 
 		data = from_networkx(observation, group_node_attrs = self.node_attr, group_edge_attrs = self.edge_attr)
 
-		print("Data:", data)
-		print("Data type:", type(data))
+		pre_action_mask = from_networkx(observation, group_node_attrs = ["type"]).x.squeeze(-1).tolist()
+		action_mask = []
+		for i in pre_action_mask:
+			if i == 1:
+				action_mask.append(0)
+			else: 
+				action_mask.append(1)
 
-		# get action, value, logp from net
+		print("Data:", data)
+		# print("Data type:", type(data))
+
+		# get action, value, logp from net		
+
 		if eval:
 			with torch.no_grad():
-				unique_edges, action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr, eval=True)
+				action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr, action_mask = action_mask, eval=True)
 		else:
-			unique_edges, action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr)
+			action, prob, value, _ = self.net(data.x, data.edge_index, data.edge_attr, action_mask = action_mask)
 
-		print("Unique edges:", unique_edges[: , action].detach().cpu().numpy(), "Action:", action.detach().cpu().numpy())
+		# print("Action:", action.detach().cpu().numpy())
 		
-		return unique_edges[: , action].detach().cpu().numpy(), action.detach().cpu().numpy(), value.item(), prob.squeeze().item()
+		return data, action.detach().cpu().numpy(), value.item(), prob.squeeze().item()
 	
 	def update(self):
 		loss_counter = 0.0001
@@ -233,6 +267,8 @@ class PPOAgent(PPOBaseAgent):
 				adv_train_batch = adv_batch[start:start + self.batch_size]
 				v_train_batch = v_batch[start:start + self.batch_size]
 				logp_pi_train_batch = logp_pi_batch[start:start + self.batch_size]
+
+				print("ob_train_batch:", type(ob_train_batch), ob_train_batch)
 
 				ob_train_batch = torch.tensor(ob_train_batch, dtype = torch.float32).to(self.device)
 				ac_train_batch = torch.tensor(ac_train_batch, dtype = torch.long).to(self.device)

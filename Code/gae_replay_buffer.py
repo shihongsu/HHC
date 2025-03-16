@@ -54,14 +54,14 @@ class GaeSampleMemory(object):
             return len(self.transitions["action"])
 
         def append(self, sample):
-            print("Sample", sample)
+            # print("Sample", sample)
             for key in sample:
-                print("Key:", key)
-                print("Sample[key]:", sample[key])
+                # print("Key:", key)
+                # print("Sample[key]:", sample[key])
 
                 if key == "observation":
                     for obs_idx, obs_key in enumerate(sample[key]):
-                        print("Obs_key:", obs_key, "Obs_key type:", type(obs_key), "Obs_key shape:", obs_key.shape)
+                        # print("Obs_key:", obs_key, "Obs_key type:", type(obs_key), "Obs_key shape:", obs_key.shape)
 
                         # Ensure obs_key is of hashable type
                         if isinstance(obs_key, torch.Tensor):
@@ -155,12 +155,15 @@ class GaeSampleMemory(object):
         for trajectory in self.paths[index].trajectories:
             rewards = trajectory.merge("reward")
             values = trajectory.merge("value")
+            # values = [v[0].item() if isinstance(v, tuple) else v.item() for v in trajectory.merge("value")]
+            # print(f"Values before appending: {values}, Type of first element: {type(values[0])}")
             dones = trajectory.merge("done")
             sample_count = len(rewards)
             if trajectory.transitions["done"][-1]:
                 values.append(0)
             else:
                 values.append(values[-1])
+                # values.append(values[-1] if isinstance(values[-1], float) else values[-1].item())
             for start in range(0, sample_count, self.horizon):
                 _return, _adv = self._compute_gae(
                     rewards=rewards[start:start + self.horizon], 
@@ -210,6 +213,11 @@ class GaeSampleMemory(object):
         """
         delta = np.zeros_like(rewards, dtype=np.float32)
         for t in range(len(rewards)):
+
+            # print(f"Type of values: {type(values)}, Type of values[t+1]: {type(values[t+1])}")
+            # print(f"Type of rewards: {type(rewards)}, Type of discount_gamma: {type(discount_gamma)}")
+
+
             if dones[t]:
                 delta[t] = rewards[t] - values[t]
             else:
