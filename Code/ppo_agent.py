@@ -10,6 +10,7 @@ from base_agent import PPOBaseAgent
 from ppo_model import PPONet
 from torch_geometric.utils import from_networkx
 import torch_geometric.utils.convert as tg_convert
+from torch_geometric.data import Batch
 import matplotlib.pyplot as plt
 import gym
 import cv2
@@ -53,6 +54,7 @@ class GraphEnv(gym.Env):
 		num_patients = len(self.patients)
 		for i, patient in enumerate(self.patients):
 			self.graph.add_node(i, 
+					   			index = i, 
 					   			type = 1, 
 					   			level = patient[2], 
 								time_window_start = patient[0], 
@@ -79,6 +81,7 @@ class GraphEnv(gym.Env):
 
 		# Add "add_cg"
 		self.graph.add_node(num_patients, 
+					  		index = num_patients, 
 					  		type = 3, 
 							level = -1,
 							time_window_start = -1,
@@ -91,6 +94,7 @@ class GraphEnv(gym.Env):
 
 		# give 1st caregiver
 		self.graph.add_node(num_patients + 1,
+					  		index = num_patients + 1, 
 					  		type = 2,
 							level = self.patients[0][2],
 							time_window_start = -1,
@@ -101,7 +105,7 @@ class GraphEnv(gym.Env):
 		
 		pos = nx.spring_layout(self.graph)
 		nx.draw(self.graph, pos = pos, with_labels = True)
-		plt.show()
+		# plt.show()
 	
 
 	def step(self, action):
@@ -116,6 +120,7 @@ class GraphEnv(gym.Env):
 		if self.graph.nodes[caregiver_id]["type"] == 3:
 			# add cg with lv = pat lv
 			self.graph.add_node(len(self.patients) + len(self.caregivers), 
+					   			index = len(self.patients) + len(self.caregivers), 
 					   			type = 2, 
 								level = patient_node["level"], 
 								time_window_start = -1, 
@@ -135,13 +140,15 @@ class GraphEnv(gym.Env):
 
 			if caregiver_node["level"] >= patient_node["level"] and caregiver_node["workload"] - patient_node["service_time"] >= 0:
 				self.assignments.append([patient_id, caregiver_id])
-				caregiver_node["workload"] - patient_node["service_time"]
+				caregiver_node["workload"] = caregiver_node["workload"] - patient_node["service_time"]
 				reward = 5
 			else:
 				reward = -10
 
 		done = (len(self.assignments) == len(self.patients))
-		return self._get_observation(), reward, done, {}, patient_id
+		if done == 1:
+			print(self.assignments)
+		return self._get_observation(), reward, done, patient_id
 
 
 	def _get_observation(self):
@@ -186,7 +193,8 @@ class PPOAgent(PPOBaseAgent):
 			dist: distance between nodes		
 		"""
 		
-		self.node_attr = ["type", 
+		self.node_attr = ["index", 
+						  "type", 
 						  "level", 
 						  "time_window_start", 
 						  "time_window_end", 
@@ -221,6 +229,7 @@ class PPOAgent(PPOBaseAgent):
 				action_mask.append(0)
 			else: 
 				action_mask.append(1)
+		action_mask = np.array(action_mask)
 
 		print("Data:", data)
 		# print("Data type:", type(data))
@@ -235,7 +244,7 @@ class PPOAgent(PPOBaseAgent):
 
 		# print("Action:", action.detach().cpu().numpy())
 		
-		return data, action.detach().cpu().numpy(), value.item(), prob.squeeze().item()
+		return data, action.detach().cpu().numpy(), value.item(), prob.squeeze().item(), action_mask
 	
 	def update(self):
 		loss_counter = 0.0001
@@ -245,12 +254,24 @@ class PPOAgent(PPOBaseAgent):
 		total_loss = 0
 
 		batches = self.gae_replay_buffer.extract_batch(self.discount_factor_gamma, self.discount_factor_lambda)
+
+		print("Keys in observation_batch:", batches["observation"])  # check if contain edge_index, edge_attr
+
 		sample_count = len(batches["action"])
 		batch_index = np.random.permutation(sample_count)
 		
-		observation_batch = {}
-		for key in batches["observation"]:
-			observation_batch[key] = batches["observation"][key][batch_index]
+		# observation_batch = {}
+		# for key in batches["observation"]:
+		# 	# print(key)
+		# 	observation_batch[key] = batches["observation"][key][batch_index]
+
+		# for key, value in observation_batch.items():
+		# 	print("Key:", key)
+		# 	print("Value type:", type(value))
+		# 	print("Value sample:", value[:5] if isinstance(value, (list, np.ndarray, torch.Tensor)) else value)
+
+		observation_batch = [batches["observation"][idx] for idx in batch_index]
+		action_mask_batch = [batches["action_mask"][idx] for idx in batch_index]
 		action_batch = batches["action"][batch_index]
 		return_batch = batches["return"][batch_index]
 		adv_batch = batches["adv"][batch_index]
@@ -259,18 +280,22 @@ class PPOAgent(PPOBaseAgent):
 
 		for _ in range(self.update_count):
 			for start in range(0, sample_count, self.batch_size):
-				ob_train_batch = {}
-				for key in observation_batch:
-					ob_train_batch[key] = observation_batch[key][start:start + self.batch_size]
+				# ob_train_batch = {}
+				# for key in observation_batch:
+				# 	ob_train_batch[key] = observation_batch[key][start:start + self.batch_size]
+				ob_train_batch = Batch.from_data_list(observation_batch[start:start + self.batch_size])
+				am_train_batch = action_mask_batch[start:start + self.batch_size]
+				# print("am: ", am_train_batch)
+				# raise RuntimeError("123")
 				ac_train_batch = action_batch[start:start + self.batch_size]
 				return_train_batch = return_batch[start:start + self.batch_size]
 				adv_train_batch = adv_batch[start:start + self.batch_size]
 				v_train_batch = v_batch[start:start + self.batch_size]
 				logp_pi_train_batch = logp_pi_batch[start:start + self.batch_size]
 
-				print("ob_train_batch:", type(ob_train_batch), ob_train_batch)
+				# print("ob_train_batch:", type(ob_train_batch), ob_train_batch)
 
-				ob_train_batch = torch.tensor(ob_train_batch, dtype = torch.float32).to(self.device)
+				ob_train_batch = ob_train_batch.to(self.device)
 				ac_train_batch = torch.tensor(ac_train_batch, dtype = torch.long).to(self.device)
 				adv_train_batch = torch.tensor(adv_train_batch, dtype = torch.float32).to(self.device)
 				logp_pi_train_batch = torch.tensor(logp_pi_train_batch, dtype = torch.float32).to(self.device)
@@ -278,7 +303,8 @@ class PPOAgent(PPOBaseAgent):
 
 				### TODO ###
 				# calculate loss and update network
-				action, prob, value, entropy = self.net(ob_train_batch, eval = False, a = ac_train_batch.squeeze())
+				action, prob, value, entropy = self.net(ob_train_batch.x, ob_train_batch.edge_index,
+					ob_train_batch.edge_attr, am_train_batch, eval = False, a = ac_train_batch.squeeze())
 
 				# size of entropy
 				entropy = torch.mean(entropy)

@@ -69,20 +69,21 @@ class PPOBaseAgent(ABC):
 			episode_len = 0
 			episode_idx += 1
 			while True:
-				data, action, value, logp_pi = self.decide_agent_actions(observation)
-				next_observation, reward, terminate, truncate, pat_id = self.env.step(action)
+				data, action, value, logp_pi, action_mask = self.decide_agent_actions(observation)
+				next_observation, reward, terminate, pat_id = self.env.step(action)
 				# observation must be dict before storing into gae_replay_buffer
 				# dimension of reward, value, logp_pi, done must be the same
 				obs = data
 				# print(data)
-				obs = torch.tensor(obs.x, dtype = torch.float32, device = self.device)
+				obs = obs
 				print("obs:", obs)
 				action = torch.tensor(action, dtype = torch.int64, device = self.device).unsqueeze(0).detach().cpu().numpy()
-				print(action.shape)
+				print("Action:", action, "shape:", action.shape)
 				logp_pi = torch.tensor(logp_pi, dtype = torch.float32, device = self.device).detach().cpu().numpy()
 				self.gae_replay_buffer.append(0, {
 								"observation": obs,
 								"action": action,
+								"action_mask": action_mask,
 								"reward": reward, 
 								"value": value, 
 								"logp_pi": logp_pi, 
@@ -97,7 +98,7 @@ class PPOBaseAgent(ABC):
 				episode_reward += reward
 				episode_len += 1
 				
-				if terminate or truncate:
+				if terminate:
 					self.writer.add_scalar('Train/Episode Reward', episode_reward, self.total_time_step)
 					self.writer.add_scalar('Train/Episode Len', episode_len, self.total_time_step)
 					print(f"[{len(self.gae_replay_buffer)}/{self.update_sample_count}][{self.total_time_step}/{self.training_steps}]  episode: {episode_idx}  episode reward: {episode_reward}  episode len: {episode_len}")
@@ -117,14 +118,14 @@ class PPOBaseAgent(ABC):
 		print("Evaluating...")
 		all_rewards = []
 		for i in range(self.eval_episode):
-			observation, info = self.test_env.reset()
+			observation = self.test_env.reset()
 			total_reward = 0
 			while True:
 				# self.test_env.render()
-				action, _, _ = self.decide_agent_actions(observation, eval=True)
-				next_observation, reward, terminate, truncate = self.test_env.step(action[0])
+				_, action, _, _, _ = self.decide_agent_actions(observation, eval=True)
+				next_observation, reward, terminate, pat_id = self.test_env.step(action[0])
 				total_reward += reward
-				if terminate or truncate:
+				if terminate:
 					print(f"episode {i+1} reward: {total_reward}")
 					all_rewards.append(total_reward)
 					break

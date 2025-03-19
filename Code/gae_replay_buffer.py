@@ -42,8 +42,9 @@ class GaeSampleMemory(object):
     class Trajectory(object):
         def __init__(self):
             self.transitions = {
-                "observation": {},
+                "observation": [],
                 "action": [],
+                "action_mask": [],
                 "reward": [],
                 "value": [],
                 "logp_pi": [],
@@ -59,28 +60,30 @@ class GaeSampleMemory(object):
                 # print("Key:", key)
                 # print("Sample[key]:", sample[key])
 
-                if key == "observation":
-                    for obs_idx, obs_key in enumerate(sample[key]):
-                        # print("Obs_key:", obs_key, "Obs_key type:", type(obs_key), "Obs_key shape:", obs_key.shape)
+                self.transitions[key].append(sample[key])
 
-                        # Ensure obs_key is of hashable type
-                        if isinstance(obs_key, torch.Tensor):
-                            if obs_key.numel() == 1:
-                                obs_key = obs_key.item() # Convert single-value tensor to scalar
-                            else: 
-                                obs_key = tuple(obs_key.tolist()) # Convert multi-element tensor to tuple
+                # if key == "observation":
+                #     for obs_idx, obs_key in enumerate(sample[key]):
+                #         # print("Obs_key:", obs_key, "Obs_key type:", type(obs_key), "Obs_key shape:", obs_key.shape)
+
+                #         # Ensure obs_key is of hashable type
+                #         if isinstance(obs_key, torch.Tensor):
+                #             if obs_key.numel() == 1:
+                #                 obs_key = obs_key.item() # Convert single-value tensor to scalar
+                #             else: 
+                #                 obs_key = tuple(obs_key.tolist()) # Convert multi-element tensor to tuple
                         
-                        # Initialize storage if needed
-                        if obs_key not in self.transitions[key]:
-                            self.transitions[key][obs_key] = []
+                #         # Initialize storage if needed
+                #         if obs_key not in self.transitions[key]:
+                #             self.transitions[key][obs_key] = []
 
-                        # Append only the corresponding row instead of the entire tensor
-                        self.transitions[key][obs_key].append(sample[key][obs_idx])
-                else:
-                    self.transitions[key].append(sample[key])
+                #         # Append only the corresponding row instead of the entire tensor
+                #         self.transitions[key][obs_key].append(sample[key][obs_idx])
+                # else:
+                #     self.transitions[key].append(sample[key])
 
         def get_keys(self):
-            return ["observation", "action", "reward", "value", "logp_pi", "done"]
+            return ["observation", "action", "action_mask", "reward", "value", "logp_pi", "done"]
 
         def get_observation_keys(self):
             return self.transitions["observation"].keys()
@@ -90,9 +93,21 @@ class GaeSampleMemory(object):
             return merged_results
 
         def merge_observations(self, key):
-            merged_results = [s for s in self.transitions["observation"][key]]
-            return merged_results
+            
+            # print("Available keys:", list(self.transitions["observation"].keys()))
+            # print("Requested key:", key)
 
+            # Make a dictionary for faster matching for keys
+            key_dict = {k[0]: k for k in self.transitions["observation"].keys()}
+
+            requested_idx = key[0]
+            if requested_idx in key_dict:
+                actual_key = key_dict[requested_idx]
+                return [s for s in self.transitions["observation"][actual_key]]
+            else:
+                print("Key not found!")
+                return[]
+            
         def merge_next_observations(self, key):
             merged_results = [s for s in self.transitions["observation"][key]]
             return merged_results[1:] + [merged_results[-1]]
@@ -136,13 +151,25 @@ class GaeSampleMemory(object):
             "return": np.concatenate(returns),
             "adv": advs,
         }
+
         for key in self.paths[0].get_keys():
-            if key == "observation":
-                batchs[key] = {}
-                for obs_key in self.paths[0].get_observation_keys():
-                    batchs[key][obs_key] = np.concatenate([self.paths[i].merge_observations(obs_key) for i in range(self.config["agent_count"])])
+            print(key)
+            if key == "observation" or key == "action_mask":
+                batchs[key] = []
+                for i in range(self.config["agent_count"]):
+                    for traj in self.paths[i].trajectories:
+                        for item in traj.transitions[key]:
+                            batchs[key].append(item)
             else:
                 batchs[key] = np.concatenate([self.paths[i].merge(key) for i in range(self.config["agent_count"])])
+
+        # for key in self.paths[0].get_keys():
+        #     if key == "observation":
+        #         batchs[key] = []
+        #         for obs_key in self.paths[0].get_observation_keys():
+        #             batchs[key][obs_key] = np.concatenate([self.paths[i].merge_observations(obs_key) for i in range(self.config["agent_count"])])
+        #     else:
+        #         batchs[key] = np.concatenate([self.paths[i].merge(key) for i in range(self.config["agent_count"])])
         if use_next_observation:
             batchs["next_observation"] = {}
             for obs_key in self.paths[0].get_observation_keys():

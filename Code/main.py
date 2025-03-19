@@ -22,13 +22,8 @@ if __name__ == '__main__':
 		"eval_episode": 5,
 	}
 
-	distance = [[0, 3, 5], 
-		 		[3, 0, 4], 
-				[5, 4, 0]]
-	patients = [[20, 100, 3, 40], 
-				[40, 80, 1, 20], 
-				[0, 60, 2, 30]]
-
+	distance = np.loadtxt("1-1n10-walk.txt")
+	patients = np.loadtxt("1-1n10-job.txt")
 	agent = PPOAgent(config, patients, distance, caregivers = [])
 	# agent.load("./log/")
 	agent.train()

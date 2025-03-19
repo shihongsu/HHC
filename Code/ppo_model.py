@@ -52,6 +52,7 @@ class PPONet(nn.Module):
 
         # action mask
         if action_mask is not None:
+            print("AM:", action_mask)
             # action_mask = action_mask.view(-1, 1) 
             masked_logits = node_logits.clone()
             # print("Masked_logits:", masked_logits)
@@ -60,6 +61,7 @@ class PPONet(nn.Module):
             masked_logits = node_logits
 
         dist = Categorical(logits = masked_logits)
+        print("prob:", dist.probs)
         
         ### TODO ###
         # Finish the forward function
@@ -83,10 +85,14 @@ class PPONet(nn.Module):
 
     def _initialize_weights(self):
         for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.orthogonal_(m.weight, np.sqrt(2))
-                nn.init.constant_(m.bias, 0.0)
+            if isinstance(m, GATConv):
+                nn.init.xavier_uniform_(m.lin.weight)
+                nn.init.xavier_uniform_(m.att_dst)
+                nn.init.xavier_uniform_(m.att_edge)
+                nn.init.xavier_uniform_(m.att_src)
+            elif isinstance(m, nn.Conv2d):
+                nn.init.orthogonal(m.weight, np.sqrt(2))
+                nn.init.constant(m.bias, 0.0)
             elif isinstance(m, nn.Linear):
-                nn.init.orthogonal_(m.weight, np.sqrt(2))
+                nn.init.orthogonal(m.weight, 1.0)
                 nn.init.constant_(m.bias, 0.0)
-                
