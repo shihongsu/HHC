@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=4 # Each task reserves 56 vcores on a node, default value is 1
 #SBATCH --gres=gpu:1 # Reserve 8 GPUs on each node for this job
 #SBATCH --mem=16G # Reserve memory size on each node
-#SBATCH --time=1-00:00:00 # Set execution time limit to 3 mins, kill the job if it reaches
+#SBATCH --time=06:00:00 # Set execution time limit to 3 mins, kill the job if it reaches
 #SBATCH -p defq # Partition/Queue name
 
 #==========================
