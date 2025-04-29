@@ -133,7 +133,7 @@ class GraphEnv(gym.Env):
 			# print("Pat", self.patients)
 			print("Assignment", self.assignments)
 			self.caregiver_counter += 1
-			reward = 2 # successful assignment
+			reward = 1 # successful assignment
 		else:
 			# check if assignment valid (time window + lv)
 			caregiver_node = self.graph.nodes[caregiver_id]
