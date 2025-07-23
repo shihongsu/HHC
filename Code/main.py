@@ -2,11 +2,20 @@ import numpy as np
 from ppo_agent import PPOAgent
 
 
+# sort pat
+def sort_map(job):
+    # add indices
+    idx = list(range(len(job)))
+    # sort by lv -> twS -> twE
+    sorted_lv_tw = sorted(idx, key = lambda i: (-job[i][2], job[i][0], job[i][1]))
+    return sorted_lv_tw
+
+
 if __name__ == '__main__':
 	config = {
-		"gpu": False,
-		"training_steps": 100, # 1e8,
-		"update_sample_count": 10, # 10000,
+		"gpu": False, # True,
+		"training_steps": 1e8, # 1e8,
+		"update_sample_count": 1000, # 10000,
 		"discount_factor_gamma": 0.99,
 		"discount_factor_lambda": 0.95,
 		"clip_epsilon": 0.2,
@@ -17,16 +26,14 @@ if __name__ == '__main__':
 		"learning_rate": 2.5e-6,
 		"value_coefficient": 0.5,
 		"entropy_coefficient": 0.01,
-		"horizon": 16, # 128,
-		"eval_interval": 10, # 100,
+		"horizon": 128, # 128,
+		"eval_interval": 100, # 100,
 		"eval_episode": 5,
 	}
 
-	distance = np.loadtxt("1-1n10-walk.txt")
-	patients = np.loadtxt("1-1n10-job.txt")
-	agent = PPOAgent(config, patients, distance, caregivers = [])
+	dist = np.loadtxt("10-1-dist.txt")
+	jobs = np.loadtxt("10-1-job.txt")
+	agent = PPOAgent(config, jobs, dist)
 	# agent.load("./log/")
 	agent.train()
 	agent.evaluate()
-
-

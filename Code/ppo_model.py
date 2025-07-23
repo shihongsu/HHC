@@ -17,7 +17,7 @@ class PPONet(nn.Module):
         # 2nd GAT
         self.gat2 = GATConv(hidden_channels * heads, out_channels, heads = 1, concat = False, edge_dim = edge_attr_dim)
         
-        self.node_mlp = nn.Sequential(nn.Linear(out_channels, 256), 
+        self.edge_mlp = nn.Sequential(nn.Linear(2 * out_channels, 256), 
                                       nn.ReLU(), 
                                       nn.Linear(256, 1))
         
@@ -28,7 +28,7 @@ class PPONet(nn.Module):
         if init_weights:
             self._initialize_weights()
 
-    def forward(self, x, edge_index, edge_attr, action_mask = None, eval=False, a=[]):
+    def forward(self, x, edge_index, edge_attr, masked_edge_index, eval=False, a=[]):
         
         """
         since graph is undirected
@@ -38,30 +38,26 @@ class PPONet(nn.Module):
         x = x.float()
         edge_attr = edge_attr.float()
 
-        # print("x shape:", x.shape)
-        # print("edge_attr shape:", edge_attr.shape)
-
         x = self.gat1(x, edge_index, edge_attr)
         x = self.activation(x)
         node_embeddings = self.gat2(x, edge_index, edge_attr)
-
-        # node logits
-        node_logits = self.node_mlp(node_embeddings).squeeze(-1)
-
-        # print("Node logits shape:", node_logits.shape)
+        row, col = masked_edge_index
+        edge_embeddings = torch.cat([node_embeddings[row], node_embeddings[col]], dim=-1)
+        edge_logits = self.edge_mlp(edge_embeddings).squeeze(-1)
 
         # action mask
-        if action_mask is not None:
-            print("AM:", action_mask)
-            # action_mask = action_mask.view(-1, 1) 
-            masked_logits = node_logits.clone()
-            # print("Masked_logits:", masked_logits)
-            masked_logits[action_mask == 0] = float("-inf")
-        else:
-            masked_logits = node_logits
+        # if action_mask is not None:
+        #     # print("AM:", action_mask)
+        #     # action_mask = action_mask.view(-1, 1) 
+        #     masked_logits = node_logits.clone()
+        #     # print("Masked_logits:", masked_logits)
+        #     masked_logits[action_mask == 0] = float("-inf")
+        # else:
+        #     masked_logits = node_logits
 
-        dist = Categorical(logits = masked_logits)
-        print("prob:", dist.probs)
+        dist = Categorical(logits = edge_logits)
+        print("prob:", edge_logits) 
+        print("DISTPROBS:", dist.probs)
         
         ### TODO ###
         # Finish the forward function
@@ -69,7 +65,7 @@ class PPONet(nn.Module):
 
         # evaluation or not
         if eval:
-            action = torch.argmax(masked_logits).unsqueeze(0)
+            action = torch.argmax(edge_logits).unsqueeze(0)
         else:
             # action set empty or not
             if len(a) == 0:

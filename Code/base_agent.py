@@ -8,6 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from gae_replay_buffer import GaeSampleMemory
 from replay_buffer import ReplayMemory
 from abc import ABC, abstractmethod
+from const import *
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -17,7 +18,9 @@ class PPOBaseAgent(ABC):
 	def __init__(self, config):
 		self.env: "GraphEnv" = None
 		self.gpu = config["gpu"]
-		self.device = torch.device("cuda" if self.gpu and torch.cuda.is_available() else "cpu")
+		self.device = torch.device("cuda") if self.gpu else torch.device("cpu")
+		if ASABURU:
+			print(self.device)
 		self.total_time_step = 0
 		self.training_steps = int(config["training_steps"])
 		self.update_sample_count = int(config["update_sample_count"])
@@ -36,7 +39,7 @@ class PPOBaseAgent(ABC):
 			"use_return_as_advantage": False,
 			"agent_count": 1
 			})
-		# actions: {assign to a c.g, add a c.g.}
+		# actions: [pat, cg] pair, assign a pat to (a cg / add cg).
 
 		self.writer = SummaryWriter(config["logdir"])
 
@@ -68,24 +71,29 @@ class PPOBaseAgent(ABC):
 			episode_reward = 0
 			episode_len = 0
 			episode_idx += 1
+			
 			while True:
-				data, action, value, logp_pi, action_mask = self.decide_agent_actions(observation)
-				next_observation, reward, terminate, pat_id = self.env.step(action)
+				data, action, value, logp_pi, masked_edge_index = self.decide_agent_actions(observation, self.env.maskedgraph)
+				edge_action = [masked_edge_index[0][action].item(), masked_edge_index[1][action].item()]
+				print("EA:", edge_action)
+
+				next_observation, reward, terminate, pat_id = self.env.step(edge_action) # len(self.env.graph.nodes())-1
+
 				# observation must be dict before storing into gae_replay_buffer
 				# dimension of reward, value, logp_pi, done must be the same
 				obs = data
-				# print(data)
-				obs = obs
-				print("obs:", obs)
-				action = torch.tensor(action, dtype = torch.int64, device = self.device).unsqueeze(0).detach().cpu().numpy()
-				print("Action:", action, "shape:", action.shape)
-				logp_pi = torch.tensor(logp_pi, dtype = torch.float32, device = self.device).detach().cpu().numpy()
+
+				# action = torch.tensor(action, dtype = torch.int64, device = self.device).unsqueeze(0).detach().cpu().numpy()
+				# action = torch.tensor(action, dtype = torch.int64, device = self.device).unsqueeze(0)
+				# value = torch.tensor(value, dtype = torch.float32, device = self.device).detach()
+				# logp_pi = torch.tensor(logp_pi, dtype = torch.float32, device = self.device).detach().cpu().numpy()
+				#logp_pi = torch.tensor(logp_pi, dtype = torch.float32, device = self.device)
 				self.gae_replay_buffer.append(0, {
 								"observation": obs,
-								"action": action,
-								"action_mask": action_mask,
+								"action": action.unsqueeze(0),
+								"action_mask": masked_edge_index,
 								"reward": reward, 
-								"value": value, 
+								"value": value,
 								"logp_pi": logp_pi, 
 								"done": terminate})
 
@@ -93,7 +101,8 @@ class PPOBaseAgent(ABC):
 					self.update()
 					self.gae_replay_buffer.clear_buffer()
 
-				print("Episode reward", episode_reward, ". Reward:", reward)
+				if ASABURU:
+					print("step reward:", reward)
 
 				episode_reward += reward
 				episode_len += 1
@@ -123,7 +132,9 @@ class PPOBaseAgent(ABC):
 			while True:
 				# self.test_env.render()
 				_, action, _, _, _ = self.decide_agent_actions(observation, eval=True)
-				next_observation, reward, terminate, pat_id = self.test_env.step(action[0])
+				next_observation, reward, terminate, pat_id = self.test_env.step(action[0]) # 
+
+
 				total_reward += reward
 				if terminate:
 					print(f"episode {i+1} reward: {total_reward}")
