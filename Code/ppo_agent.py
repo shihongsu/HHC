@@ -33,7 +33,7 @@ class GraphEnv(gym.Env):
 		self.graph = nx.Graph()
 		self.patients = patients # list of requests
 		self.distance = distance
-		self.assignments = [] # {pat_id: cg_id}
+		self.assignments = {} # {pat_id: cg_id}
 
 		self.maskedgraph = nx.Graph()
 
@@ -122,17 +122,13 @@ class GraphEnv(gym.Env):
 		i, j: node id
 		cg rear
 		"""
-		assigned = 0
-		for k in self.assignments:
-			if k[0] == i:
-				return False
-		if assigned == 0:				
-			if (self.graph.nodes[i]["level"] <= self.graph.nodes[j]["level"] or 
-				self.graph.nodes[j]["level"] == -1):
-				return True
-			else: 
-				return False
-		else:
+		for cg in self.assignments.keys():
+			if i in self.assignments[cg]:
+				return False				
+		if (self.graph.nodes[i]["level"] <= self.graph.nodes[j]["level"] or 
+			self.graph.nodes[j]["level"] == -1):
+			return True
+		else: 
 			return False
 
 	@staticmethod
@@ -143,12 +139,19 @@ class GraphEnv(gym.Env):
 
 	# find the last assignment in caregiver's schedule
 	def find_last_assignment(self, caregiver_id):
-		n = len(self.assignments)
-		for i in range(n):
-			if self.assignments[n-1-i][1] == caregiver_id:
-				return (n-1-i)
-		return -1
-
+		return self.assignments[caregiver_id][-1]
+	
+	def check_time_window(self, cg_id, pat_id, last_pat_id):
+		cg = self.graph.nodes[cg_id]
+		pat = self.graph.nodes[pat_id]
+		dist = self.graph[pat_id][last_pat_id]["distance"]
+		serve = pat["service_time"]
+		if (cg["level"] >= pat["level"] and 
+			cg["workload"] + dist + serve <= WLUB and
+			pat["time_window_start"] <= cg["current_time"] + dist and
+			cg["current_time"] + dist + pat["service_time"] <= pat["time_window_end"]):
+			return True
+		return False
 
 	def step(self, action):
 		patient_id, caregiver_id = action
@@ -168,7 +171,7 @@ class GraphEnv(gym.Env):
 								workload = patient_node["service_time"], 
 								current_time = patient_node["time_window_start"] + patient_node["service_time"],
 								is_add = False)
-			self.assignments.append([patient_id, new_cg_id])
+			self.assignments[new_cg_id] = [patient_id]
 			self.graph.add_edge(patient_id, new_cg_id, distance = 0, edge_type = 0)
 			if patient_node["level"] == 1:
 				reward = -LV1CG
@@ -181,40 +184,41 @@ class GraphEnv(gym.Env):
 			self.maskedgraph.add_node(new_cg_id)
 			for i in range(len(self.patients)):
 				# if loop need more checking
-				if self.checkmate(i, new_cg_id):
-					self.maskedgraph.add_edge(i, new_cg_id)
+				if (self.checkmate(i, new_cg_id) and # check lv and not assigned
+					self.check_time_window(new_cg_id, i, patient_id)): # check time window (dist + serve)
+						self.maskedgraph.add_edge(i, new_cg_id)
 			self.maskedgraph.remove_edges_from(list(self.maskedgraph.edges(patient_id)))			
-			
+		# successful assignment
 		else:
-			n = len(self.patients)
-			# check if assignment valid (time window + lv)
 			caregiver_node = self.graph.nodes[caregiver_id]
-
-			# successful assignment
 			last_assignment = self.find_last_assignment(caregiver_id)
 			dist = self.graph[last_assignment][patient_id]["distance"]
-			if (caregiver_node["level"] >= patient_node["level"] and 
-	   			caregiver_node["workload"] + dist + patient_node["service_time"] <= WLUB and
-				patient_node["time_window_start"] <= caregiver_node["current_time"] + dist and
-				caregiver_node["current_time"] + dist + patient_node["service_time"] <= patient_node["time_window_end"]):
+			serve = patient_node["service_time"]
+			caregiver_node["workload"] += (dist + serve)
+			caregiver_node["current_time"] += (dist + serve)
+			reward = -dist * TR
 
-				caregiver_node["workload"] += (dist + patient_node["service_time"])
-				caregiver_node["current_time"] += (dist + patient_node["service_time"])
-				reward = -dist * TR
-
-			# failed assignment
-			else:
-				reward = -LV3CG
 			# for mask
 			self.maskedgraph.remove_edges_from(list(self.maskedgraph.edges(patient_id)))
-			self.assignments.append([patient_id, caregiver_id])
+			# remove other unqualified edges
+			temp = []
+			for i in self.maskedgraph.neighbors(caregiver_id):
+				if not self.check_time_window(caregiver_id, i, patient_id):
+					temp.append(i)
+			for i in temp:
+				self.maskedgraph.remove_edge(i, caregiver_id)
+
+			self.assignments[caregiver_id].append(patient_id)
 			self.graph.add_edge(patient_id, caregiver_id, distance = 0, edge_type = 0)
 
-		self.plot_graph(self.maskedgraph)
+		# self.plot_graph(self.graph)
+		# self.plot_graph(self.maskedgraph)
 
-		done = (len(self.assignments) == len(self.patients))
+		num_assignments = sum([len(self.assignments[i]) for i in self.assignments.keys()])
+
+		done = (num_assignments == len(self.patients))
 		if done == 1:
-			print("Assignments:", self.assignments)
+			print("Assignments:", self.assignments.items())
 		return self._get_observation(), reward, done, patient_id
 
 
@@ -225,7 +229,7 @@ class GraphEnv(gym.Env):
 	def reset(self):
 		"""Reset environment."""
 		self.graph.clear()
-		self.assignments.clear()
+		self.assignments = {}
 		self._build_graph()
 		
 		return self._get_observation()
@@ -363,6 +367,7 @@ class PPOAgent(PPOBaseAgent):
 		# 	print("Value sample:", value[:5] if isinstance(value, (list, np.ndarray, torch.Tensor)) else value)
 
 		observation_batch = [batches["observation"][idx] for idx in batch_index]
+		graph_size_batch = batches["graph_size"][batch_index]
 		action_mask_batch = [batches["action_mask"][idx] for idx in batch_index]
 		action_batch = batches["action"][batch_index]
 		return_batch = batches["return"][batch_index]
@@ -376,6 +381,8 @@ class PPOAgent(PPOBaseAgent):
 				# for key in observation_batch:
 				# 	ob_train_batch[key] = observation_batch[key][start:start + self.batch_size]
 				ob_train_batch = Batch.from_data_list(observation_batch[start:start + self.batch_size])
+				graph_size_train_batch = graph_size_batch[start:start + self.batch_size]
+
 				am_train_batch = action_mask_batch[start:start + self.batch_size]
 				# print("am: ", am_train_batch)
 				# raise RuntimeError("123")
@@ -396,7 +403,7 @@ class PPOAgent(PPOBaseAgent):
 				### TODO ###
 				# calculate loss and update network
 				action, prob, value, entropy = self.net(ob_train_batch.x, ob_train_batch.edge_index,
-					ob_train_batch.edge_attr, am_train_batch, eval = False, a = ac_train_batch.squeeze())
+					ob_train_batch.edge_attr, am_train_batch, eval = False, a = ac_train_batch.squeeze(), graph_size = graph_size_train_batch)
 
 				# size of entropy
 				entropy = torch.mean(entropy)

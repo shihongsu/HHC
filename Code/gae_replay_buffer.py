@@ -43,6 +43,7 @@ class GaeSampleMemory(object):
         def __init__(self):
             self.transitions = {
                 "observation": [],
+                "graph_size": [],
                 "action": [],
                 "action_mask": [],
                 "reward": [],
@@ -59,9 +60,7 @@ class GaeSampleMemory(object):
             for key in sample:
                 # print("Key:", key)
                 # print("Sample[key]:", sample[key])
-
                 self.transitions[key].append(sample[key])
-
                 # if key == "observation":
                 #     for obs_idx, obs_key in enumerate(sample[key]):
                 #         # print("Obs_key:", obs_key, "Obs_key type:", type(obs_key), "Obs_key shape:", obs_key.shape)
@@ -83,7 +82,7 @@ class GaeSampleMemory(object):
                 #     self.transitions[key].append(sample[key])
 
         def get_keys(self):
-            return ["observation", "action", "action_mask", "reward", "value", "logp_pi", "done"]
+            return ["observation", "graph_size", "action", "action_mask", "reward", "value", "logp_pi", "done"]
 
         def get_observation_keys(self):
             return self.transitions["observation"].keys()

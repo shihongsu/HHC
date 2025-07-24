@@ -15,7 +15,7 @@ if __name__ == '__main__':
 	config = {
 		"gpu": False, # True,
 		"training_steps": 1e8, # 1e8,
-		"update_sample_count": 1000, # 10000,
+		"update_sample_count": 128, # 10000,
 		"discount_factor_gamma": 0.99,
 		"discount_factor_lambda": 0.95,
 		"clip_epsilon": 0.2,

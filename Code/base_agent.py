@@ -6,7 +6,6 @@ import time
 from collections import deque
 from torch.utils.tensorboard import SummaryWriter
 from gae_replay_buffer import GaeSampleMemory
-from replay_buffer import ReplayMemory
 from abc import ABC, abstractmethod
 from const import *
 from typing import TYPE_CHECKING
@@ -71,7 +70,6 @@ class PPOBaseAgent(ABC):
 			episode_reward = 0
 			episode_len = 0
 			episode_idx += 1
-			
 			while True:
 				data, action, value, logp_pi, masked_edge_index = self.decide_agent_actions(observation, self.env.maskedgraph)
 				edge_action = [masked_edge_index[0][action].item(), masked_edge_index[1][action].item()]
@@ -82,16 +80,16 @@ class PPOBaseAgent(ABC):
 				# observation must be dict before storing into gae_replay_buffer
 				# dimension of reward, value, logp_pi, done must be the same
 				obs = data
-
 				# action = torch.tensor(action, dtype = torch.int64, device = self.device).unsqueeze(0).detach().cpu().numpy()
 				# action = torch.tensor(action, dtype = torch.int64, device = self.device).unsqueeze(0)
 				# value = torch.tensor(value, dtype = torch.float32, device = self.device).detach()
 				# logp_pi = torch.tensor(logp_pi, dtype = torch.float32, device = self.device).detach().cpu().numpy()
-				#logp_pi = torch.tensor(logp_pi, dtype = torch.float32, device = self.device)
+				# logp_pi = torch.tensor(logp_pi, dtype = torch.float32, device = self.device)
 				self.gae_replay_buffer.append(0, {
-								"observation": obs,
-								"action": action.unsqueeze(0),
-								"action_mask": masked_edge_index,
+								"observation": obs.cpu(),
+								"graph_size": len(obs.x),
+								"action": action.detach().cpu().numpy(),
+								"action_mask": masked_edge_index.detach().cpu().numpy(),
 								"reward": reward, 
 								"value": value,
 								"logp_pi": logp_pi, 
