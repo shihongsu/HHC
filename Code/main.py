@@ -1,6 +1,7 @@
 import numpy as np
 from ppo_agent import PPOAgent
 from sklearn.preprocessing import MinMaxScaler
+from const import *
 
 
 	# sort pat
@@ -12,9 +13,20 @@ def sort_map(job):
 	return sorted_lv_tw
 
 def preprocess(dist, job):
-	scalar = MinMaxScaler()
-	dist = scalar.fit_transform(np.array(dist).flatten().reshape(-1, 1)).reshape(dist.shape)
-	job = scalar.fit_transform(job)
+	for i in range(len(dist)):
+		for j in range(len(dist)):
+			dist[i][j] /= TIME_MAX
+	for i in job:
+		i[0] /= TIME_MAX
+		i[1] /= TIME_MAX
+		i[3] /= TIME_MAX
+
+		if i[2] == 1:
+			i[2] = 0
+		elif i[2] == 2:
+			i[2] = 0.5
+		elif i[2] == 3:
+			i[2] = 1 
 	return dist, job
 
 
@@ -42,6 +54,7 @@ if __name__ == '__main__':
 	jobs = np.loadtxt("10-1-job.txt")
 	dist, jobs = preprocess(dist, jobs)
 	# print(dist)
+	# print(jobs)
 	agent = PPOAgent(config, jobs, dist)
 	# agent.load("./log/")
 	agent.train()

@@ -4,7 +4,10 @@ TR = 1
 LV1CG = 10
 LV2CG = 1.2 * LV1CG # LV1CG
 LV3CG = 1.2 * LV2CG # LV2CG
-# workload upper bound for caregivers
-WLUB = 480
 
 ASABURU = False
+
+TIME_MAX = 1170
+
+# workload upper bound for caregivers
+WLUB = 480 / TIME_MAX

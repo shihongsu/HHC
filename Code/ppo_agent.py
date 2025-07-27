@@ -13,7 +13,6 @@ import torch_geometric.utils.convert as tg_convert
 from torch_geometric.data import Batch
 import matplotlib.pyplot as plt
 import gym
-import cv2
 from const import *
 
 import networkx as nx
