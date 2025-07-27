@@ -99,8 +99,8 @@ class PPOBaseAgent(ABC):
 					self.update()
 					self.gae_replay_buffer.clear_buffer()
 
-				# if ASABURU:
-				# 	print("step reward:", reward)
+				if ASABURU:
+					print("step reward:", reward)
 
 				episode_reward += reward
 				episode_len += 1

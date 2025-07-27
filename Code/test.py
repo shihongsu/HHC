@@ -1,14 +1,16 @@
-from torch.distributions import Categorical
-import torch
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
 
 def main():
-
-    logits = torch.tensor([[1, 2, 3, 4],
-                            [1, 2, 3, float('-inf')]])
-
-    dist = Categorical(logits = logits)
-
-    print(dist.sample())
+    dist = np.loadtxt("10-1-dist.txt")
+    jobs = np.loadtxt("10-1-job.txt")
+    
+    scalar = MinMaxScaler()
+    jobs = scalar.fit_transform(jobs)
+    scaled_dist = np.array(dist).flatten().reshape(-1, 1)
+    scaled_flat = scalar.fit_transform(scaled_dist)
+    dist = scaled_flat.reshape(dist.shape)
+    print("1", dist)
 
 if __name__ == "__main__":
     main()

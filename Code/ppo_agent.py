@@ -173,11 +173,11 @@ class GraphEnv(gym.Env):
 								is_add = False)
 			self.assignments[new_cg_id] = [patient_id]
 			self.graph.add_edge(patient_id, new_cg_id, distance = 0, edge_type = 0)
-			if patient_node["level"] == 1:
+			if patient_node["level"] == 0:
 				reward = -LV1CG
-			elif patient_node["level"] == 2:
+			elif patient_node["level"] == 0.5:
 				reward = -LV2CG
-			elif patient_node["level"] == 3:
+			elif patient_node["level"] == 1:
 				reward = -LV3CG
 
 			# for mask
@@ -217,8 +217,8 @@ class GraphEnv(gym.Env):
 		num_assignments = sum([len(self.assignments[i]) for i in self.assignments.keys()])
 
 		done = (num_assignments == len(self.patients))
-		if done == 1:
-			print("Assignments:", self.assignments.items())
+		# if done == 1:
+		# 	print("Assignments:", self.assignments.items())
 		return self._get_observation(), reward, done, patient_id
 
 
@@ -328,6 +328,14 @@ class PPOAgent(PPOBaseAgent):
 		# 			action_mask.append(0)
 		# action_mask = np.array(action_mask)
 		# print("ACTMASK:", action_mask)
+
+		# node_attributes = observation.nodes(data=True)
+		# for node, attributes in node_attributes:
+		# 	print(f"Node {node}: {attributes}")
+
+		# edge_attributes = observation.edges(data=True)
+		# for u, v, attributes in edge_attributes:
+		# 	print(f"Edge ({u}, {v}): {attributes}")
 
 
 		# get action, value, logp from net		
