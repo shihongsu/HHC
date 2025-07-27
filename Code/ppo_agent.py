@@ -218,6 +218,9 @@ class GraphEnv(gym.Env):
 		done = (num_assignments == len(self.patients))
 		# if done == 1:
 		# 	print("Assignments:", self.assignments.items())
+		# 	for i in range(len(self.graph.nodes())):
+		# 		if self.graph.nodes[i]["type"] == 2:
+		# 			print("CG:", i, "LV:", self.graph.nodes[i]["level"], "with WL:", self.graph.nodes[i]["workload"] * TIME_MAX)
 		return self._get_observation(), reward, done, patient_id
 
 

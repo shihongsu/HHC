@@ -34,7 +34,7 @@ if __name__ == '__main__':
 	config = {
 	"gpu": False, # True,
 	"training_steps": 1e8, # 1e8,
-	"update_sample_count": 128, # 10000,
+	"update_sample_count": 10000, # 10000,
 	"discount_factor_gamma": 0.99,
 	"discount_factor_lambda": 0.95,
 	"clip_epsilon": 0.2,
@@ -42,7 +42,7 @@ if __name__ == '__main__':
 	"batch_size": 128,
 	"logdir": 'log/',
 	"update_ppo_epoch": 3,
-	"learning_rate": 2.5e-6,
+	"learning_rate": 2.5e-4, # 2.5e-6,
 	"value_coefficient": 0.5,
 	"entropy_coefficient": 0.01,
 	"horizon": 128, # 128,
@@ -57,5 +57,6 @@ if __name__ == '__main__':
 	# print(jobs)
 	agent = PPOAgent(config, jobs, dist)
 	# agent.load("./log/")
-	agent.train()
-	agent.evaluate()
+	# agent.train()
+	agent.load_and_evaluate("./log/model_108900_-26.pth")
+	# agent.evaluate()
