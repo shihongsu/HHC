@@ -73,7 +73,7 @@ class PPOBaseAgent(ABC):
 			while True:
 				data, action, value, logp_pi, masked_edge_index = self.decide_agent_actions(observation, self.env.maskedgraph)
 				edge_action = [masked_edge_index[0][action].item(), masked_edge_index[1][action].item()]
-				print("EA:", edge_action)
+				# print("EA:", edge_action)
 
 				next_observation, reward, terminate, pat_id = self.env.step(edge_action) # len(self.env.graph.nodes())-1
 
@@ -99,8 +99,8 @@ class PPOBaseAgent(ABC):
 					self.update()
 					self.gae_replay_buffer.clear_buffer()
 
-				if ASABURU:
-					print("step reward:", reward)
+				# if ASABURU:
+				# 	print("step reward:", reward)
 
 				episode_reward += reward
 				episode_len += 1
@@ -124,13 +124,16 @@ class PPOBaseAgent(ABC):
 		print("==============================================")
 		print("Evaluating...")
 		all_rewards = []
+
 		for i in range(self.eval_episode):
 			observation = self.test_env.reset()
 			total_reward = 0
 			while True:
 				# self.test_env.render()
-				_, action, _, _, _ = self.decide_agent_actions(observation, eval=True)
-				next_observation, reward, terminate, pat_id = self.test_env.step(action[0]) # 
+				_, action, _, _, masked_edge_index = self.decide_agent_actions(observation, self.test_env.maskedgraph, eval=True)
+				edge_action = [masked_edge_index[0][action].item(), masked_edge_index[1][action].item()]
+
+				next_observation, reward, terminate, pat_id = self.test_env.step(edge_action)
 
 
 				total_reward += reward
@@ -141,7 +144,6 @@ class PPOBaseAgent(ABC):
 
 				observation = next_observation
 			
-
 		avg = sum(all_rewards) / self.eval_episode
 		print(f"average score: {avg}")
 		print("==============================================")

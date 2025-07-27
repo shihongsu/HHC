@@ -152,7 +152,7 @@ class GaeSampleMemory(object):
         }
 
         for key in self.paths[0].get_keys():
-            print(key)
+            # print(key)
             if key == "observation" or key == "action_mask":
                 batchs[key] = []
                 for i in range(self.config["agent_count"]):

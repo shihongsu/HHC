@@ -285,14 +285,14 @@ class PPOAgent(PPOBaseAgent):
 	def decide_agent_actions(self, observation, masked_graph, eval=False):
 		### TODO ###
 		# add batch dimension in observation
-		print("Observation:", observation)
+		# print("Observation:", observation)
 
 		# print("Observation type:", type(observation))
 		# print("nx.is_directed(observation):", nx.is_directed(observation))
 		
 		data = from_networkx(observation, group_node_attrs = self.node_attr, group_edge_attrs = self.edge_attr)
 		data = data.to(self.device)
-		print("Data:", data)
+		# print("Data:", data)
 
 		masked_edge_index = from_networkx(masked_graph).edge_index
 		edge_tuples = set()
@@ -302,7 +302,7 @@ class PPOAgent(PPOBaseAgent):
 		cleaned_edges = torch.tensor(list(edge_tuples)).T
 		masked_edge_index = cleaned_edges
 		
-		print("***\n", masked_edge_index)
+		# print("***\n", masked_edge_index)
 
 		# pre_action_mask = from_networkx(observation, group_node_attrs = ["type", "level"]).x.squeeze(-1).tolist()
 		# print("PRE:", pre_action_mask)
@@ -351,7 +351,7 @@ class PPOAgent(PPOBaseAgent):
 
 		batches = self.gae_replay_buffer.extract_batch(self.discount_factor_gamma, self.discount_factor_lambda)
 
-		print("Keys in observation_batch:", batches["observation"])  # check if contain edge_index, edge_attr
+		# print("Keys in observation_batch:", batches["observation"])  # check if contain edge_index, edge_attr
 
 		sample_count = len(batches["action"])
 		batch_index = np.random.permutation(sample_count)
